@@ -8,6 +8,7 @@ from . import proxies
 
 class BotManager:
     """This class manages several Twitch viewbots."""
+
     def __init__(self,
                  proxy_strat: proxies.ProxyBase,
                  loop: asyncio.AbstractEventLoop = None):
@@ -18,11 +19,13 @@ class BotManager:
         self.bots: List[Bot] = []
 
     async def main(self):
+        """Run main logic."""
         self.bots = [Bot(p_url) for p_url in self.proxy_url_list]
         await asyncio.gather(*[b.start() for b in self.bots])
         await asyncio.gather(*[b.close() for b in self.bots])
 
     def run(self):
+        """Run main loop."""
         try:
             self.loop.run_until_complete(self.main())
 
@@ -32,6 +35,7 @@ class BotManager:
 
 class Bot:
     """This class implements a Twitch viewbot."""
+
     def __init__(self, proxy_url: Optional[str], n_sessions: int = 1):
         """Implement constructor."""
         self.n_sessions: int = n_sessions
