@@ -7,6 +7,9 @@ authors = ["fritobag <<>>"]
 [tool.poetry.dependencies]
 python = "^3.8"
 aiohttp = "^3.7.3"
+aiohttp-socks = "^0.5.5"
+m3u8 = "^0.7.1"
+fake-useragent = "^0.1.11"
 
 [tool.poetry.dev-dependencies]
 
