@@ -114,9 +114,3 @@ class ProxyNordVPN:
     def __init__(self):
         """Implement constructor."""
         super().__init__()
-
-
-if __name__ == "__main__":
-    tor_obj = ProxyTor()
-    proxy = Proxy.from_url("socks5://x1Km6dAoE5:3W88wMTM51@localhost:9050")
-    print(proxy)
