@@ -1,10 +1,15 @@
 """This module implements several proxy stratagies."""
+import asyncio
+import logging
 import re
 import secrets
 import string
 from typing import Dict, List, Optional
 
 from . import http_client as hc
+from . import proxies
+
+logger = logging.getLogger(__name__)
 
 
 class ProxyWrongFormatException(Exception):
@@ -24,8 +29,9 @@ class Proxy:
         prototype: str,
         hostname: str,
         port: int,
-        username: Optional[str],
-        password: Optional[str],
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        ip: Optional[str] = None,
     ):
         """Implement constructor."""
         self.prot: str = prototype
@@ -33,6 +39,7 @@ class Proxy:
         self.pswd: Optional[str] = password
         self.host: str = hostname
         self.port: int = port
+        self.ip: Optional[str] = ip
 
     @property
     def url(self):
@@ -40,6 +47,11 @@ class Proxy:
         if (self.user and self.pswd) is None:
             return f"{self.prot}://{self.host}:{self.port}"
         return f"{self.prot}://{self.user}:{self.pswd}@{self.host}:{self.port}"
+
+    @property
+    def tested(self) -> bool:
+        """Return boolean if proxy was tested."""
+        return self.ip is not None
 
     @classmethod
     def from_url(cls, url: str):
@@ -57,7 +69,21 @@ class Proxy:
 
     def __str__(self):
         """Change the str() format to show the proxy url."""
+        if self.ip:
+            return f"Proxy({self.url}, {self.ip})"
         return f"Proxy({self.url})"
+
+    def __repr__(self):
+        """Change the repr() format to show the proxy url."""
+        return self.__str__()
+
+    def __eq__(self, other):
+        """Check if the ips are equal."""
+        return self.ip == other.ip
+
+    def __hash__(self):
+        """Define the hash of a Proxy."""
+        return hash(self.ip)
 
 
 class ProxyBase:
@@ -65,7 +91,7 @@ class ProxyBase:
 
     def __init__(self):
         """Implement constructor."""
-        self.proxy_list: List[Optional[str]] = []
+        self.proxy_list: List[Proxy] = []
         self.config: Dict[str, Optional[str, int]] = {}
 
 
@@ -74,7 +100,7 @@ class ProxyTor(ProxyBase):
 
     def __init__(
         self,
-        n_connections: int = 200,
+        n_connections: int = 10,
         tor_port: int = 9050,
         tor_host: str = "localhost",
     ):
@@ -90,14 +116,48 @@ class ProxyTor(ProxyBase):
         pool = string.ascii_letters + string.digits
         return "".join([secrets.choice(pool) for _ in range(n)])
 
-    def _proxy_url_gen(self) -> List[Optional[str]]:
+    def _proxy_list_gen(self):
         """Generate proxy urls with random credentials."""
         rnd_str = self.__class__._random_str_gen
         self.proxy_list = [
-            f"socks5://{rnd_str()}:{rnd_str()}@{self.host}:{self.port}"
+            Proxy.from_url(
+                f"socks5://{rnd_str()}:{rnd_str()}@{self.host}:{self.port}")
             for _ in range(self.n_conn)
         ]
-        return self.proxy_list
+
+    async def _test_proxies(self) -> None:
+        """Test if proxies in proxy_list are working and remove duplicates."""
+        semaphore = asyncio.Semaphore(10)
+
+        async def test_proxy(proxy: proxies.Proxy) -> Proxy:
+            async with semaphore:
+                async with hc.Http(proxy_url=proxy.url) as s:
+                    async with s.get("https://api.ipify.org?format=json") as r:
+                        r_json = await r.json()
+            proxy.ip = r_json.get("ip")
+            logger.debug(f"Tested {proxy}")
+            return proxy
+
+        res = await asyncio.gather(*[test_proxy(p) for p in self.proxy_list])
+        self.proxy_list = list(set(res))
+        self.n_conn = len(self.proxy_list)
+
+    def create(self) -> List[Proxy]:
+        """Create a untested proxy list."""
+        return self._proxy_list_gen()
+
+    def test(self) -> None:
+        """Test proxies and discard not uniques."""
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(self._test_proxies())
+        finally:
+            loop.close()
+
+    def run(self):
+        """Create and test a proxy list."""
+        self.create()
+        self.test()
 
 
 class ProxyFile:
@@ -114,3 +174,10 @@ class ProxyNordVPN:
     def __init__(self):
         """Implement constructor."""
         super().__init__()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+    tor_obj = ProxyTor(n_connections=250)
+    tor_obj.run()
+    logger.debug(tor_obj.n_conn)
